@@ -14,8 +14,6 @@ if (DB_URL && DB_TOKEN) db = createClient({ url: DB_URL, authToken: DB_TOKEN });
 const hunting = createHuntingEngine({
   db,
   config: {
-    apifyToken: process.env.APIFY_TOKEN || '',
-    actorId: process.env.APIFY_ACTOR_ID || 'scrapewise~daraz-scraper',
     geminiKey: process.env.GEMINI_API_KEY || '',
     groqKey: process.env.GROQ_API_KEY || '',
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
@@ -211,7 +209,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/status') {
     return json(res, 200, {
       app: 'PriceNova',
-      engine: { installed: true, provider: 'Apify', ai: { geminiConfigured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) } },
+      engine: { installed: true, provider: 'Playwright + Chromium', browserInstall: 'npm postinstall', ai: { geminiConfigured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) } },
       database: { configured: Boolean(DB_URL && DB_TOKEN), connected: dbConnected },
       admin: { passwordConfigured: Boolean(ADMIN_PASSWORD) }
     });
