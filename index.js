@@ -78,11 +78,11 @@ const page = `<!DOCTYPE html><html lang="en"><head>
 <button data-section="Analytics"><span class="glyph">▥</span><span class="navtext">Analytics</span></button></nav>
 <div class="navlabel">PREFERENCES</div><nav class="nav"><button data-section="Settings"><span class="glyph">⚙</span><span class="navtext">Settings</span></button><button data-section="Help"><span class="glyph">?</span><span class="navtext">Help Center</span></button></nav>
 <div class="bottom"><div class="dbcard"><div class="dbstatus"><span class="dot" id="dbDot"></span><span id="dbLabel">Turso not configured</span></div><p id="dbInfo">Set Turso credentials in your environment to enable storage.</p></div><div class="owner"><div class="avatar">PN</div><div class="ownerinfo"><strong>PriceNova</strong><small>Product workspace</small></div></div></div></aside>
-<main><header class="top"><div class="crumb">Workspace / <b id="breadcrumb">Overview</b></div><div class="topright"><div class="pill"><span class="dot"></span> Playwright engine configured</div><div class="pill">Version 1.0</div></div></header>
+<main><header class="top"><div class="crumb">Workspace / <b id="breadcrumb">Overview</b></div><div class="topright"><div class="pill"><span class="dot"></span> HTTP collector configured</div><div class="pill">Version 1.0</div></div></header>
 <section class="intro"><div><h1 id="pageTitle">Overview <span style="color:var(--green)">✦</span></h1><p id="subtitle">Your product intelligence workspace. No records yet.</p></div><button class="launch" disabled>⌕ &nbsp; Use Product Hunt in Admin</button></section>
 <section class="cards">
 <div class="card"><div class="cardhead"><h2>Price activity</h2><small>Live data only</small></div><div class="empty"><div class="emptyicon">⌁</div><strong>No price history</strong><p>Real price movement will appear after the product tracking engine is built and starts collecting data.</p></div></div>
-<div class="card"><div class="cardhead"><h2>System status</h2><small>Readiness</small></div><div class="empty"><div class="emptyicon">◈</div><strong id="sysTitle">Awaiting setup</strong><p id="sysMessage">Turso connection is being prepared. The Playwright hunting engine is configured and waiting for an Admin hunt.</p></div></div>
+<div class="card"><div class="cardhead"><h2>System status</h2><small>Readiness</small></div><div class="empty"><div class="emptyicon">◈</div><strong id="sysTitle">Awaiting setup</strong><p id="sysMessage">Turso connection is being prepared. The HTTP product collector is configured and waiting for an Admin hunt.</p></div></div>
 <div class="card wide"><div class="tablehead"><div><h2>Products</h2><small>Stored products only — no demo entries</small></div><div class="pill" id="count">0 records</div></div><div class="tableempty" id="productEmpty">No products stored yet. This section will show real products after the discovery engine is connected.</div></div>
 <div class="card"><div class="cardhead"><h2>Watchlist</h2><small>Tracked items</small></div><div class="empty"><div class="emptyicon">◇</div><strong>Nothing saved</strong><p>Your watchlist will appear here when real product tracking is implemented.</p></div></div>
 <div class="card"><div class="cardhead"><h2>Price alerts</h2><small>Notification rules</small></div><div class="empty"><div class="emptyicon">♧</div><strong>No alert rules</strong><p>Price alerts will be available after products and monitoring are implemented.</p></div></div>
@@ -209,7 +209,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/status') {
     return json(res, 200, {
       app: 'PriceNova',
-      engine: { installed: true, provider: 'Playwright + Chromium', browserInstall: 'npm postinstall', ai: { geminiConfigured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) } },
+      engine: { installed: true, provider: 'Node fetch + Cheerio', browserInstall: 'not required', ai: { geminiConfigured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) } },
       database: { configured: Boolean(DB_URL && DB_TOKEN), connected: dbConnected },
       admin: { passwordConfigured: Boolean(ADMIN_PASSWORD) }
     });
