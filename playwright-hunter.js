@@ -86,10 +86,12 @@ async function searchProducts(keyword, options={}) {
 async function searchMany(keywords,options={}) {
   const limit=Math.max(1,Math.min(50,Number(options.maxProducts)||20));
   const unique=new Map(),errors=[];
-  for(const keyword of [...new Set(keywords.map(x=>String(x||'').trim()).filter(Boolean))].slice(0,5)) {
+  const selected=[...new Set(keywords.map(x=>String(x||'').trim()).filter(Boolean))].slice(0,5);
+  const perKeyword=Math.max(3,Math.ceil(limit/Math.max(1,selected.length)));
+  for(const keyword of selected) {
     if(unique.size>=limit) break;
     try {
-      const rows=await searchProducts(keyword,{maxProducts:limit-unique.size});
+      const rows=await searchProducts(keyword,{maxProducts:perKeyword});
       for(const row of rows) {
         const key=row.id||row.url;
         if(key&&!unique.has(key)) unique.set(key,row);
