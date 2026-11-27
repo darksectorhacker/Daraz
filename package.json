@@ -1,7 +1,7 @@
 {
   "name": "pricenova",
   "version": "1.0.0",
-  "description": "PriceNova - Automated Product Intelligence and Price Tracking",
+  "description": "PriceNova — automated product intelligence and price tracking",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -10,9 +10,13 @@
   "keywords": [
     "product-intelligence",
     "price-tracking",
-    "product-hunt",
+    "product-discovery",
     "automation"
   ],
   "author": "QAMAR",
-  "license": "ISC"
+  "license": "ISC",
+  "dependencies": {
+    "@libsql/client": "^0.15.15",
+    "dotenv": "^16.4.7"
+  }
 }
