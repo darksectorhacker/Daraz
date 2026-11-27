@@ -1,6 +1,7 @@
 require('dotenv').config();
 const http = require('http');
 const { createClient } = require('@libsql/client');
+const { createHuntingEngine } = require('./hunting');
 
 const PORT = Number(process.env.PORT) || 3000;
 const DB_URL = process.env.TURSO_DATABASE_URL;
@@ -9,6 +10,18 @@ let db = null;
 let dbConnected = false;
 
 if (DB_URL && DB_TOKEN) db = createClient({ url: DB_URL, authToken: DB_TOKEN });
+
+const hunting = createHuntingEngine({
+  db,
+  config: {
+    apifyToken: process.env.APIFY_TOKEN || '',
+    actorId: process.env.APIFY_ACTOR_ID || 'scrapewise~daraz-scraper',
+    geminiKey: process.env.GEMINI_API_KEY || '',
+    groqKey: process.env.GROQ_API_KEY || '',
+    geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+  }
+});
 
 async function prepareDatabase() {
   if (!db) return;
@@ -186,7 +199,7 @@ function loginRateLimit(key) {
   return current;
 }
 
-const protectedPages = new Set(['/UserManagement.html', '/Conversion.html', '/Clicks.html']);
+const protectedPages = new Set(['/UserManagement.html', '/Conversion.html', '/Clicks.html', '/Hunting.html']);
 const server = http.createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
 
@@ -198,10 +211,34 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/status') {
     return json(res, 200, {
       app: 'PriceNova',
-      engine: { installed: false },
+      engine: { installed: true, provider: 'Apify', ai: { geminiConfigured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) } },
       database: { configured: Boolean(DB_URL && DB_TOKEN), connected: dbConnected },
       admin: { passwordConfigured: Boolean(ADMIN_PASSWORD) }
     });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/hunt') {
+    if (!ADMIN_PASSWORD || !getAdminSession(req)) return json(res, 401, { error: 'Admin authentication required.' });
+    let body;
+    try { body = await readJsonBody(req, 8192); }
+    catch (err) { return json(res, 400, { error: err.message }); }
+    try {
+      await databaseReady;
+      const result = await hunting.hunt(body);
+      return json(res, 200, result);
+    } catch (err) {
+      return json(res, 400, { error: err.message });
+    }
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/hunt/data') {
+    if (!ADMIN_PASSWORD || !getAdminSession(req)) return json(res, 401, { error: 'Admin authentication required.' });
+    try {
+      await databaseReady;
+      return json(res, 200, await hunting.data());
+    } catch (err) {
+      return json(res, 500, { error: err.message });
+    }
   }
 
   if (req.method === 'GET' && url.pathname === '/api/admin/session') {
@@ -264,5 +301,5 @@ const server = http.createServer(async (req, res) => {
   return json(res, 404, { error: 'Not found' });
 });
 
-prepareDatabase();
+const databaseReady = prepareDatabase();
 server.listen(PORT, '0.0.0.0', () => console.log('PriceNova server listening on port ' + PORT));
