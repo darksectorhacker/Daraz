@@ -84,16 +84,185 @@ async function status(){try{let r=await fetch('/api/status');let d=await r.json(
 status();
 </script></body></html>`;
 
-function json(res, status, data) {
-  res.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
+
+function json(res, status, data, extraHeaders = {}) {
+  res.writeHead(status, {
+    'Content-Type': 'application/json; charset=utf-8',
+    'Cache-Control': 'no-store',
+    ...extraHeaders
+  });
   res.end(JSON.stringify(data));
 }
-const server=http.createServer((req,res)=>{
-  const url=new URL(req.url,'http://localhost');
-  if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/index')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
-  if(req.method==='GET'&&url.pathname==='/api/status')return json(res,200,{app:'PriceNova',engine:{installed:false},database:{configured:Boolean(DB_URL&&DB_TOKEN),connected:dbConnected}});
-  if(req.method==='GET'&&['/admin','/Admin.html','/admin.html'].includes(url.pathname)){res.writeHead(302,{Location:'/Admin.html'});return res.end();}
-  return json(res,404,{error:'Not found'});
+
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '';
+const ADMIN_SESSION_TTL = 8 * 60 * 60 * 1000;
+const ADMIN_COOKIE = 'pn_admin_session';
+const adminSessions = new Map();
+const loginAttempts = new Map();
+
+function getCookie(req, name) {
+  const raw = req.headers.cookie || '';
+  for (const part of raw.split(';')) {
+    const item = part.trim();
+    const index = item.indexOf('=');
+    if (index > -1 && item.slice(0, index) === name) {
+      return decodeURIComponent(item.slice(index + 1));
+    }
+  }
+  return '';
+}
+
+function getAdminSession(req) {
+  const token = getCookie(req, ADMIN_COOKIE);
+  if (!token) return null;
+  const session = adminSessions.get(token);
+  if (!session) return null;
+  if (session.expiresAt <= Date.now()) {
+    adminSessions.delete(token);
+    return null;
+  }
+  session.expiresAt = Date.now() + ADMIN_SESSION_TTL;
+  return session;
+}
+
+function isSecureRequest(req) {
+  return process.env.NODE_ENV === 'production' ||
+    (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https';
+}
+
+function sessionCookie(req, token, maxAge) {
+  return ADMIN_COOKIE + '=' + encodeURIComponent(token) +
+    '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + maxAge +
+    (isSecureRequest(req) ? '; Secure' : '');
+}
+
+function sendAdminFile(res, filename) {
+  const filePath = path.join(__dirname, filename);
+  if (!fs.existsSync(filePath)) {
+    res.writeHead(503, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+    return res.end('Admin page is not available yet.');
+  }
+  res.writeHead(200, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Cache-Control': 'no-store',
+    'X-Content-Type-Options': 'nosniff',
+    'Referrer-Policy': 'same-origin'
+  });
+  res.end(fs.readFileSync(filePath));
+}
+
+function readJsonBody(req, maxBytes = 4096) {
+  return new Promise((resolve, reject) => {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk;
+      if (Buffer.byteLength(body) > maxBytes) {
+        reject(new Error('Request body too large'));
+        req.destroy();
+      }
+    });
+    req.on('end', () => {
+      try { resolve(body ? JSON.parse(body) : {}); }
+      catch { reject(new Error('Invalid JSON body')); }
+    });
+    req.on('error', reject);
+  });
+}
+
+function getClientKey(req) {
+  return (req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown').toString().split(',')[0].trim();
+}
+
+function loginRateLimit(key) {
+  const now = Date.now();
+  const current = loginAttempts.get(key);
+  if (!current || current.resetAt <= now) {
+    loginAttempts.set(key, { count: 0, resetAt: now + 15 * 60 * 1000 });
+    return loginAttempts.get(key);
+  }
+  return current;
+}
+
+const protectedPages = new Set(['/UserManagement.html', '/Conversion.html', '/Clicks.html']);
+const server = http.createServer(async (req, res) => {
+  const url = new URL(req.url, 'http://localhost');
+
+  if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/index')) {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(page);
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/status') {
+    return json(res, 200, {
+      app: 'PriceNova',
+      engine: { installed: false },
+      database: { configured: Boolean(DB_URL && DB_TOKEN), connected: dbConnected },
+      admin: { passwordConfigured: Boolean(ADMIN_PASSWORD) }
+    });
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/admin/session') {
+    if (!ADMIN_PASSWORD) return json(res, 503, { authenticated: false, error: 'ADMIN_PASSWORD is not configured.' });
+    return json(res, 200, { authenticated: Boolean(getAdminSession(req)) });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/login') {
+    if (!ADMIN_PASSWORD) return json(res, 503, { error: 'Set ADMIN_PASSWORD in your hosting environment first.' });
+    const key = getClientKey(req);
+    const attempts = loginRateLimit(key);
+    if (attempts.count >= 5) {
+      return json(res, 429, { error: 'Too many login attempts. Try again in 15 minutes.' });
+    }
+
+    let body;
+    try { body = await readJsonBody(req); }
+    catch (err) { return json(res, 400, { error: err.message }); }
+
+    const submitted = typeof body.password === 'string' ? body.password : '';
+    const expectedBuffer = Buffer.from(ADMIN_PASSWORD);
+    const submittedBuffer = Buffer.from(submitted);
+    const valid = expectedBuffer.length === submittedBuffer.length &&
+      crypto.timingSafeEqual(expectedBuffer, submittedBuffer);
+
+    if (!valid) {
+      attempts.count += 1;
+      return json(res, 401, { error: 'Incorrect password.' });
+    }
+
+    loginAttempts.delete(key);
+    const token = crypto.randomBytes(32).toString('hex');
+    adminSessions.set(token, { createdAt: Date.now(), expiresAt: Date.now() + ADMIN_SESSION_TTL });
+    return json(res, 200, { authenticated: true }, {
+      'Set-Cookie': sessionCookie(req, token, Math.floor(ADMIN_SESSION_TTL / 1000))
+    });
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/admin/logout') {
+    const token = getCookie(req, ADMIN_COOKIE);
+    if (token) adminSessions.delete(token);
+    return json(res, 200, { success: true }, {
+      'Set-Cookie': sessionCookie(req, '', 0)
+    });
+  }
+
+  if (req.method === 'GET' && (url.pathname === '/admin' || url.pathname === '/Admin.html' || url.pathname === '/admin.html')) {
+    return sendAdminFile(res, 'Admin.html');
+  }
+
+  if (req.method === 'GET' && protectedPages.has(url.pathname)) {
+    if (!ADMIN_PASSWORD || !getAdminSession(req)) {
+      res.writeHead(302, { Location: '/Admin.html', 'Cache-Control': 'no-store' });
+      return res.end();
+    }
+    const filename = url.pathname.slice(1);
+    return sendAdminFile(res, filename);
+  }
+
+  return json(res, 404, { error: 'Not found' });
 });
+
 prepareDatabase();
-server.listen(PORT,'0.0.0.0',()=>console.log('PriceNova server listening on port '+PORT));
+server.listen(PORT, '0.0.0.0', () => console.log('PriceNova server listening on port ' + PORT));
