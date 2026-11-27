@@ -75,11 +75,6 @@ async function searchProducts(keyword, options={}) {
     const products=await extractProducts(page,q);
     await context.close();
     return products.slice(0,limit);
-  } catch(error) {
-    if(/Executable doesn't exist|browserType\.launch/i.test(error.message)) {
-      throw new Error('Playwright Chromium is unavailable. Check Fable deployment build logs for the browser installation step.');
-    }
-    throw error;
   } finally { if(browser) await browser.close().catch(()=>{}); }
 }
 
