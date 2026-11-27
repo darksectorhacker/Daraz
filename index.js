@@ -17,7 +17,9 @@ const hunting = createHuntingEngine({
     geminiKey: process.env.GEMINI_API_KEY || '',
     groqKey: process.env.GROQ_API_KEY || '',
     geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
-    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile'
+    groqModel: process.env.GROQ_MODEL || 'llama-3.3-70b-versatile',
+    darazFeedUrl: process.env.DARAZ_PRODUCT_FEED_URL || '',
+    darazFeedToken: process.env.DARAZ_PRODUCT_FEED_TOKEN || ''
   }
 });
 
@@ -78,11 +80,11 @@ const page = `<!DOCTYPE html><html lang="en"><head>
 <button data-section="Analytics"><span class="glyph">▥</span><span class="navtext">Analytics</span></button></nav>
 <div class="navlabel">PREFERENCES</div><nav class="nav"><button data-section="Settings"><span class="glyph">⚙</span><span class="navtext">Settings</span></button><button data-section="Help"><span class="glyph">?</span><span class="navtext">Help Center</span></button></nav>
 <div class="bottom"><div class="dbcard"><div class="dbstatus"><span class="dot" id="dbDot"></span><span id="dbLabel">Turso not configured</span></div><p id="dbInfo">Set Turso credentials in your environment to enable storage.</p></div><div class="owner"><div class="avatar">PN</div><div class="ownerinfo"><strong>PriceNova</strong><small>Product workspace</small></div></div></div></aside>
-<main><header class="top"><div class="crumb">Workspace / <b id="breadcrumb">Overview</b></div><div class="topright"><div class="pill"><span class="dot"></span> HTTP collector configured</div><div class="pill">Version 1.0</div></div></header>
+<main><header class="top"><div class="crumb">Workspace / <b id="breadcrumb">Overview</b></div><div class="topright"><div class="pill"><span class="dot"></span> Daraz AI Agent</div><div class="pill">Version 1.0</div></div></header>
 <section class="intro"><div><h1 id="pageTitle">Overview <span style="color:var(--green)">✦</span></h1><p id="subtitle">Your product intelligence workspace. No records yet.</p></div><button class="launch" disabled>⌕ &nbsp; Use Product Hunt in Admin</button></section>
 <section class="cards">
 <div class="card"><div class="cardhead"><h2>Price activity</h2><small>Live data only</small></div><div class="empty"><div class="emptyicon">⌁</div><strong>No price history</strong><p>Real price movement will appear after the product tracking engine is built and starts collecting data.</p></div></div>
-<div class="card"><div class="cardhead"><h2>System status</h2><small>Readiness</small></div><div class="empty"><div class="emptyicon">◈</div><strong id="sysTitle">Awaiting setup</strong><p id="sysMessage">Turso connection is being prepared. The HTTP product collector is configured and waiting for an Admin hunt.</p></div></div>
+<div class="card"><div class="cardhead"><h2>System status</h2><small>Readiness</small></div><div class="empty"><div class="emptyicon">◈</div><strong id="sysTitle">Awaiting setup</strong><p id="sysMessage">Turso connection is being prepared. The Daraz AI Agent is waiting for its approved product data feed.</p></div></div>
 <div class="card wide"><div class="tablehead"><div><h2>Products</h2><small>Stored products only — no demo entries</small></div><div class="pill" id="count">0 records</div></div><div class="tableempty" id="productEmpty">No products stored yet. This section will show real products after the discovery engine is connected.</div></div>
 <div class="card"><div class="cardhead"><h2>Watchlist</h2><small>Tracked items</small></div><div class="empty"><div class="emptyicon">◇</div><strong>Nothing saved</strong><p>Your watchlist will appear here when real product tracking is implemented.</p></div></div>
 <div class="card"><div class="cardhead"><h2>Price alerts</h2><small>Notification rules</small></div><div class="empty"><div class="emptyicon">♧</div><strong>No alert rules</strong><p>Price alerts will be available after products and monitoring are implemented.</p></div></div>
@@ -91,7 +93,7 @@ const page = `<!DOCTYPE html><html lang="en"><head>
 const toast=document.getElementById('toast');let t;
 function notify(s){toast.textContent=s;toast.classList.add('show');clearTimeout(t);t=setTimeout(()=>toast.classList.remove('show'),2300)}
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');let p=b.dataset.section;document.getElementById('breadcrumb').textContent=p;document.getElementById('pageTitle').innerHTML=p+' <span style="color:var(--green)">✦</span>';document.getElementById('subtitle').textContent=p==='Overview'?'Your product intelligence workspace. No records yet.':p+' module is reserved until it is implemented.';notify(p+' is not implemented yet')}));
-async function status(){try{let r=await fetch('/api/status');let d=await r.json();let ok=d.database.connected;document.getElementById('dbDot').classList.toggle('good',ok);document.getElementById('dbLabel').textContent=ok?'Turso connected':d.database.configured?'Turso connection error':'Turso not configured';document.getElementById('dbInfo').textContent=ok?'Database tables are initialized and ready for real records.':d.database.configured?'Check your Turso credentials and server log.':'Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your environment.';document.getElementById('sysTitle').textContent=ok?'Storage ready':'Awaiting setup';document.getElementById('sysMessage').textContent=ok?'Turso is connected. Waiting for the product engine to write real data.':'Turso is not connected. The hunting engine is not active.'}catch(e){document.getElementById('dbLabel').textContent='Server unavailable'}}
+async function status(){try{let r=await fetch('/api/status');let d=await r.json();let ok=d.database.connected;document.getElementById('dbDot').classList.toggle('good',ok);document.getElementById('dbLabel').textContent=ok?'Turso connected':d.database.configured?'Turso connection error':'Turso not configured';document.getElementById('dbInfo').textContent=ok?'Database tables are initialized and ready for real records.':d.database.configured?'Check your Turso credentials and server log.':'Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your environment.';document.getElementById('sysTitle').textContent=ok?'Storage ready':'Awaiting setup';document.getElementById('sysMessage').textContent=ok?'Turso is connected. Waiting for the product engine to write real data.':'Turso is not connected. The Daraz Agent is not ready until its approved product feed is configured.'}catch(e){document.getElementById('dbLabel').textContent='Server unavailable'}}
 status();
 </script></body></html>`;
 
@@ -209,7 +211,16 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/api/status') {
     return json(res, 200, {
       app: 'PriceNova',
-      engine: { installed: true, provider: 'Node fetch + Cheerio', browserInstall: 'not required', ai: { geminiConfigured: Boolean(process.env.GEMINI_API_KEY), groqConfigured: Boolean(process.env.GROQ_API_KEY) } },
+      engine: {
+        installed: true,
+        type: 'Daraz AI Agent',
+        framework: 'Vercel AI SDK ToolLoopAgent',
+        dataSourceConfigured: Boolean(process.env.DARAZ_PRODUCT_FEED_URL),
+        ai: {
+          geminiConfigured: Boolean(process.env.GEMINI_API_KEY),
+          groqConfigured: Boolean(process.env.GROQ_API_KEY)
+        }
+      },
       database: { configured: Boolean(DB_URL && DB_TOKEN), connected: dbConnected },
       admin: { passwordConfigured: Boolean(ADMIN_PASSWORD) }
     });
