@@ -1,101 +1,99 @@
+require('dotenv').config();
 const http = require('http');
+const { createClient } = require('@libsql/client');
 
 const PORT = Number(process.env.PORT) || 3000;
+const DB_URL = process.env.TURSO_DATABASE_URL;
+const DB_TOKEN = process.env.TURSO_AUTH_TOKEN;
+let db = null;
+let dbConnected = false;
 
-// PriceNova main website UI is kept inside index.js as requested.
-// Admin panel will be maintained separately in Admin.html.
-const mainPage = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<meta name="theme-color" content="#080c0b">
-<title>PriceNova — Product Intelligence</title>
+if (DB_URL && DB_TOKEN) db = createClient({ url: DB_URL, authToken: DB_TOKEN });
+
+async function prepareDatabase() {
+  if (!db) return;
+  try {
+    await db.execute(\`CREATE TABLE IF NOT EXISTS products (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      marketplace TEXT NOT NULL,
+      external_id TEXT,
+      url TEXT NOT NULL,
+      title TEXT NOT NULL,
+      currency TEXT,
+      current_price REAL,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      UNIQUE(marketplace, external_id)
+    )\`);
+    await db.execute(\`CREATE TABLE IF NOT EXISTS price_history (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      price REAL NOT NULL,
+      recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+    )\`);
+    await db.execute(\`CREATE TABLE IF NOT EXISTS price_alerts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      product_id INTEGER NOT NULL,
+      target_price REAL NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
+    )\`);
+    dbConnected = true;
+    console.log('Turso connected; core tables initialized.');
+  } catch (err) {
+    dbConnected = false;
+    console.error('Turso setup failed:', err.message);
+  }
+}
+
+const page = \`<!DOCTYPE html><html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#070a09"><title>PriceNova | Product Intelligence</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap');
-:root{--bg:#080c0b;--panel:#0e1412;--panel2:#111a16;--line:#1e2a24;--green:#38e58b;--green2:#17b96b;--muted:#85938b;--text:#e8f0eb;--red:#ff6b76;--yellow:#f3c86a}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh}button,input{font:inherit}.app{display:flex;min-height:100vh}.sidebar{width:238px;background:#090e0c;border-right:1px solid var(--line);padding:25px 16px;display:flex;flex-direction:column;position:fixed;inset:0  auto 0 0;z-index:4}.brand{display:flex;align-items:center;gap:11px;padding:0 8px 28px}.logo{height:36px;width:36px;border-radius:11px;background:linear-gradient(145deg,#39e58c,#0e7046);display:grid;place-items:center;color:#06110a;font-weight:800;font-family:'Space Grotesk';box-shadow:0 0 24px #21c87525}.brand-name{font-family:'Space Grotesk';font-size:18px;font-weight:700;letter-spacing:-.5px}.brand-name span{color:var(--green)}.label{font-size:10px;color:#65746b;letter-spacing:1.6px;font-weight:700;padding:12px 10px}.nav{display:grid;gap:5px}.nav button{border:0;background:transparent;color:#a5b2aa;text-align:left;padding:11px 12px;border-radius:9px;display:flex;gap:12px;align-items:center;cursor:pointer;font-size:13px;transition:.18s}.nav button:hover{background:#111b15;color:#e8f0eb}.nav button.active{background:#12251a;color:var(--green);box-shadow:inset 2px 0 var(--green)}.navicon{width:18px;text-align:center;font-size:15px}.sidebar-bottom{margin-top:auto}.status-card{border:1px solid #1d3125;background:linear-gradient(135deg,#101b14,#0c120f);padding:13px;border-radius:12px;margin:10px 3px 16px}.status-top{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:600}.pulse{height:7px;width:7px;background:var(--green);border-radius:50%;box-shadow:0 0 9px var(--green)}.status-card p{font-size:11px;color:var(--muted);line-height:1.5;margin:8px 0 0}.profile{border-top:1px solid var(--line);padding:15px 5px 0;display:flex;gap:10px;align-items:center}.avatar{width:33px;height:33px;border-radius:50%;background:#17241c;border:1px solid #294632;display:grid;place-items:center;color:var(--green);font-weight:700;font-size:12px}.profile strong{font-size:12px;display:block}.profile small{font-size:10px;color:var(--muted)}.main{margin-left:238px;width:calc(100% - 238px);padding:27px 34px 50px;max-width:1600px}.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}.crumb{font-size:12px;color:var(--muted)}.crumb b{color:#d5e0d8;font-weight:500}.top-actions{display:flex;gap:10px;align-items:center}.iconbtn{border:1px solid var(--line);background:var(--panel);color:#a8b5ad;border-radius:9px;height:36px;width:38px;cursor:pointer}.iconbtn:hover{border-color:#2d4837;color:var(--green)}.datepill{font-size:11px;color:#9daaa2;border:1px solid var(--line);padding:9px 12px;border-radius:8px}.welcome{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:22px}.welcome h1{font-family:'Space Grotesk';font-size:26px;letter-spacing:-.7px;margin:0 0 6px}.welcome p{margin:0;color:var(--muted);font-size:13px}.primary{background:var(--green);color:#06130a;border:0;padding:10px 15px;border-radius:9px;font-weight:700;font-size:12px;cursor:pointer;transition:.2s}.primary:hover{background:#62f0a5;transform:translateY(-1px)}.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:18px}.stat{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:17px 18px;position:relative;overflow:hidden}.stat:after{content:'';position:absolute;right:-25px;top:-30px;width:80px;height:80px;border-radius:50%;background:#26d87a08}.stathead{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:11px}.statico{height:28px;width:28px;border-radius:8px;background:#15251a;color:var(--green);display:grid;place-items:center;font-size:13px}.statval{font-family:'Space Grotesk';font-size:27px;font-weight:600;margin:13px 0 5px;letter-spacing:-.5px}.statfoot{font-size:10px;color:var(--muted)}.positive{color:var(--green)}.negative{color:var(--red)}.dashboard-grid{display:grid;grid-template-columns:minmax(0,1.7fr) minmax(260px,1fr);gap:15px;margin-bottom:17px}.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px}.card-title{display:flex;justify-content:space-between;align-items:center;margin-bottom:18px}.card-title h2{font-family:'Space Grotesk';font-size:14px;margin:0;font-weight:600}.card-title small{color:var(--muted);font-size:10px}.chartlegend{display:flex;gap:15px;color:var(--muted);font-size:10px}.legenddot{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--green);margin-right:6px}.chart{height:175px;width:100%;position:relative}.chart svg{width:100%;height:100%;overflow:visible}.gridline{stroke:#1b2821;stroke-width:1;stroke-dasharray:4 5}.chartlabel{fill:#708078;font-size:9px;font-family:'DM Sans'}.chartline{fill:none;stroke:var(--green);stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round}.chartarea{fill:url(#area)}.insights{display:flex;flex-direction:column;gap:12px}.insight{display:flex;gap:11px;align-items:flex-start;padding:11px;border-radius:9px;background:#101815;border:1px solid #1b2821}.insight-icon{width:28px;height:28px;border-radius:8px;display:grid;place-items:center;background:#18281e;color:var(--green);flex-shrink:0}.insight strong{font-size:11px;display:block;margin:1px 0 4px}.insight p{font-size:10px;line-height:1.45;color:var(--muted);margin:0}.table-card{padding:0;overflow:hidden}.table-head{padding:18px 18px 14px;display:flex;align-items:center;justify-content:space-between}.table-head h2{font-family:'Space Grotesk';font-size:14px;margin:0}.table-head small{font-size:10px;color:var(--muted)}.tabletools{display:flex;gap:8px;align-items:center}.search{width:190px;background:#090f0c;border:1px solid #1c2922;border-radius:8px;padding:9px 10px;color:var(--text);font-size:11px;outline:none}.search:focus{border-color:#2c754c}.filter{background:#101713;color:#a4b0a8;border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:11px;cursor:pointer}.tablewrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:650px}th{font-size:9px;color:#6e7c73;letter-spacing:1px;text-align:left;font-weight:600;padding:12px 17px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}td{padding:13px 17px;border-bottom:1px solid #18231d;font-size:11px;color:#c5d0c8}tbody tr:hover{background:#111a15}.product{display:flex;align-items:center;gap:10px}.prodimg{height:34px;width:34px;border-radius:8px;background:#18231c;display:grid;place-items:center;font-size:17px}.product strong{font-size:11px;display:block;color:#e0e9e3}.product small{font-size:9px;color:#77847b}.price{font-family:'Space Grotesk';font-weight:600}.trend{font-size:10px;color:var(--green)}.tag{font-size:9px;padding:5px 8px;border-radius:20px;background:#14261a;color:var(--green);white-space:nowrap}.tag.watch{background:#201c12;color:var(--yellow)}.tag.hot{background:#28151a;color:#ff8a95}.rowbtn{background:transparent;border:1px solid #26342b;color:#a2b1a7;border-radius:6px;padding:6px 8px;font-size:10px;cursor:pointer}.rowbtn:hover{color:var(--green);border-color:#306a46}.footerline{display:flex;justify-content:space-between;padding:12px 18px;color:#6f7c73;font-size:10px}.empty{padding:28px;text-align:center;color:var(--muted);font-size:12px;display:none}.toast{position:fixed;bottom:22px;right:22px;background:#14251a;border:1px solid #2e7048;color:#d6f5e2;padding:12px 16px;border-radius:10px;font-size:12px;opacity:0;transform:translateY(12px);transition:.25s;z-index:10}.toast.show{opacity:1;transform:translateY(0)}.mobile-toggle{display:none}
-@media(max-width:1100px){.stats{grid-template-columns:repeat(2,1fr)}.dashboard-grid{grid-template-columns:1fr}.main{padding:24px}}
-@media(max-width:760px){.sidebar{width:72px;padding:20px 10px}.brand{justify-content:center;padding:0 0 25px}.brand-name,.label,.navtext,.status-card,.profile-info{display:none}.nav button{justify-content:center;padding:12px 8px}.navicon{font-size:17px}.sidebar-bottom{display:flex;flex-direction:column;align-items:center}.profile{justify-content:center;padding-top:12px}.main{margin-left:72px;width:calc(100% - 72px);padding:20px 15px}.topbar{margin-bottom:22px}.datepill{display:none}.welcome h1{font-size:21px}.welcome p{font-size:11px;max-width:240px}.welcome .primary{padding:9px 11px;font-size:10px}.stats{gap:9px}.stat{padding:13px}.statval{font-size:23px}.stathead{font-size:10px}.dashboard-grid{gap:10px}.card{padding:14px}.table-head{align-items:flex-start;gap:10px;flex-direction:column}.tabletools{width:100%}.search{flex:1;width:100%}.chart{height:150px}}
-@media(max-width:430px){.stats{grid-template-columns:1fr 1fr}.statval{font-size:21px}.statfoot{font-size:9px}.top-actions{gap:5px}.welcome{align-items:center}.welcome h1{font-size:19px}.chartlegend{gap:8px}}
-</style>
-</head>
-<body>
-<div class="app">
-<aside class="sidebar">
-<div class="brand"><div class="logo">P</div><div class="brand-name">Price<span>Nova</span></div></div>
-<div class="label">WORKSPACE</div>
-<nav class="nav">
-<button class="active" data-page="Overview"><span class="navicon">⌂</span><span class="navtext">Overview</span></button>
-<button data-page="Product Hunt"><span class="navicon">⌕</span><span class="navtext">Product Hunt</span></button>
-<button data-page="Watchlist"><span class="navicon">◈</span><span class="navtext">Watchlist</span></button>
-<button data-page="Price Alerts"><span class="navicon">♧</span><span class="navtext">Price Alerts</span></button>
-<button data-page="Analytics"><span class="navicon">▥</span><span class="navtext">Analytics</span></button>
-</nav>
-<div class="label">PREFERENCES</div>
-<nav class="nav"><button data-page="Settings"><span class="navicon">⚙</span><span class="navtext">Settings</span></button><button data-page="Help Center"><span class="navicon">?</span><span class="navtext">Help Center</span></button></nav>
-<div class="sidebar-bottom">
-<div class="status-card"><div class="status-top"><span class="pulse"></span> Hunter online</div><p>Monitoring engine ready. Next scan in 04:32.</p></div>
-<div class="profile"><div class="avatar">Q</div><div class="profile-info"><strong>Qamar</strong><small>Workspace owner</small></div></div>
-</div>
-</aside>
-<main class="main">
-<header class="topbar"><div class="crumb">Workspace / <b id="crumb">Overview</b></div><div class="top-actions"><div class="datepill">◷ &nbsp; Today · Nov 27</div><button class="iconbtn" title="Notifications" id="notif">♧</button><button class="iconbtn" title="Help" id="help">?</button></div></header>
-<section class="welcome"><div><h1 id="heading">Good morning, Qamar <span style="color:var(--green)">✦</span></h1><p>Here’s your product intelligence at a glance.</p></div><button class="primary" id="scanBtn">⌕ &nbsp; Start a hunt</button></section>
-<section class="stats">
-<div class="stat"><div class="stathead">PRODUCTS TRACKED <span class="statico">◈</span></div><div class="statval">1,284</div><div class="statfoot"><span class="positive">+126</span> added this week</div></div>
-<div class="stat"><div class="stathead">PRICE DROPS TODAY <span class="statico">↘</span></div><div class="statval">37</div><div class="statfoot"><span class="positive">+12.8%</span> vs. last week</div></div>
-<div class="stat"><div class="stathead">DEALS DETECTED <span class="statico">✧</span></div><div class="statval">92</div><div class="statfoot">Across monitored stores</div></div>
-<div class="stat"><div class="stathead">EST. SAVINGS FOUND <span class="statico">৳</span></div><div class="statval">Rs 48.6k</div><div class="statfoot"><span class="positive">+8.4%</span> opportunity value</div></div>
-</section>
-<section class="dashboard-grid">
-<div class="card"><div class="card-title"><h2>Price activity</h2><div class="chartlegend"><span><i class="legenddot"></i>Price drops</span><span><i class="legenddot" style="background:#60756a"></i>New finds</span></div></div>
-<div class="chart"><svg viewBox="0 0 700 180" preserveAspectRatio="none"><defs><linearGradient id="area" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#35df88" stop-opacity=".2"/><stop offset="100%" stop-color="#35df88" stop-opacity="0"/></linearGradient></defs><line class="gridline" x1="0" y1="30" x2="700" y2="30"/><line class="gridline" x1="0" y1="75" x2="700" y2="75"/><line class="gridline" x1="0" y1="120" x2="700" y2="120"/><path class="chartarea" d="M0 130 C25 110 40 120 70 100 S110 116 140 92 S180 90 210 112 S245 70 280 85 S315 60 350 90 S390 50 420 70 S460 52 490 60 S525 45 560 72 S600 35 630 46 S670 28 700 22 L700 160 L0 160 Z"/><path class="chartline" d="M0 130 C25 110 40 120 70 100 S110 116 140 92 S180 90 210 112 S245 70 280 85 S315 60 350 90 S390 50 420 70 S460 52 490 60 S525 45 560 72 S600 35 630 46 S670 28 700 22"/><text class="chartlabel" x="0" y="175">MON</text><text class="chartlabel" x="115" y="175">TUE</text><text class="chartlabel" x="230" y="175">WED</text><text class="chartlabel" x="345" y="175">THU</text><text class="chartlabel" x="460" y="175">FRI</text><text class="chartlabel" x="575" y="175">SAT</text><text class="chartlabel" x="680" y="175">SUN</text></svg></div></div>
-<div class="card"><div class="card-title"><h2>Smart insights</h2><small>AI generated</small></div><div class="insights"><div class="insight"><div class="insight-icon">↘</div><div><strong>Best drop detected</strong><p>Wireless earbuds are down 32% across 3 sellers.</p></div></div><div class="insight"><div class="insight-icon">✦</div><div><strong>Trending category</strong><p>Smart home products have 2.4× more deals this week.</p></div></div><div class="insight"><div class="insight-icon">⌕</div><div><strong>Hunt suggestion</strong><p>Try scanning accessories for new price opportunities.</p></div></div></div></div>
-</section>
-<section class="card table-card"><div class="table-head"><div><h2>Latest opportunities</h2><small>Fresh finds from your monitored marketplace</small></div><div class="tabletools"><input id="search" class="search" placeholder="Search products..."><button class="filter" id="filterBtn">All finds ▾</button></div></div>
-<div class="tablewrap"><table><thead><tr><th>PRODUCT</th><th>PRICE</th><th>CHANGE</th><th>OPPORTUNITY</th><th>STATUS</th><th></th></tr></thead><tbody id="rows">
-<tr data-name="wireless earbuds"><td><div class="product"><div class="prodimg">🎧</div><div><strong>Wireless Earbuds Pro</strong><small>Electronics · #PN-001</small></div></div></td><td class="price">Rs 2,499</td><td class="trend">↓ 32%</td><td><span class="tag hot">Hot deal</span></td><td><span class="tag">Verified</span></td><td><button class="rowbtn">Details</button></td></tr>
-<tr data-name="smart watch series 8"><td><div class="product"><div class="prodimg">⌚</div><div><strong>Smart Watch Series 8</strong><small>Wearables · #PN-002</small></div></div></td><td class="price">Rs 4,850</td><td class="trend">↓ 18%</td><td><span class="tag">Good find</span></td><td><span class="tag">Tracking</span></td><td><button class="rowbtn">Details</button></td></tr>
-<tr data-name="portable bluetooth speaker"><td><div class="product"><div class="prodimg">🔊</div><div><strong>Portable Bluetooth Speaker</strong><small>Audio · #PN-003</small></div></div></td><td class="price">Rs 1,799</td><td class="trend">↓ 24%</td><td><span class="tag hot">Hot deal</span></td><td><span class="tag">Verified</span></td><td><button class="rowbtn">Details</button></td></tr>
-<tr data-name="mechanical keyboard"><td><div class="product"><div class="prodimg">⌨️</div><div><strong>Mechanical Keyboard</strong><small>Accessories · #PN-004</small></div></div></td><td class="price">Rs 3,150</td><td class="trend">↓ 11%</td><td><span class="tag watch">Watch</span></td><td><span class="tag">Tracking</span></td><td><button class="rowbtn">Details</button></td></tr>
-<tr data-name="fast charging power bank"><td><div class="product"><div class="prodimg">🔋</div><div><strong>Fast Charging Power Bank</strong><small>Mobile · #PN-005</small></div></div></td><td class="price">Rs 2,050</td><td class="trend">↓ 16%</td><td><span class="tag">Good find</span></td><td><span class="tag">Tracking</span></td><td><button class="rowbtn">Details</button></td></tr>
-</tbody></table><div class="empty" id="empty">No products match your search.</div></div><div class="footerline"><span>Showing 5 of 1,284 tracked products</span><span>Updated just now · Demo data</span></div></section>
-</main>
-</div><div class="toast" id="toast">Demo action</div>
+:root{--bg:#070a09;--panel:#0d130f;--line:#1d2b22;--green:#39e58b;--text:#e8f1eb;--muted:#819188}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif}.layout{min-height:100vh}.sidebar{position:fixed;inset:0 auto 0 0;width:235px;background:#090e0b;border-right:1px solid var(--line);padding:23px 15px;display:flex;flex-direction:column}.brand{display:flex;align-items:center;gap:11px;padding:0 8px 30px}.logo{width:37px;height:37px;border-radius:11px;background:linear-gradient(140deg,#42ee98,#116b43);display:grid;place-items:center;color:#06120a;font-family:'Space Grotesk';font-weight:800}.brandname{font:700 18px 'Space Grotesk'}.brandname span{color:var(--green)}.navlabel{font-size:10px;color:#64736a;letter-spacing:1.5px;font-weight:700;padding:12px 10px}.nav{display:grid;gap:5px}.nav button{border:0;background:none;color:#9eada3;padding:11px;border-radius:9px;text-align:left;display:flex;gap:12px;cursor:pointer;font-size:13px}.nav button:hover{background:#111a15;color:#e6eee8}.nav button.active{background:#12251a;color:var(--green);box-shadow:inset 2px 0 var(--green)}.glyph{width:18px;text-align:center}.bottom{margin-top:auto}.dbcard{border:1px solid var(--line);border-radius:10px;background:#0d1510;padding:12px;margin:10px 3px 15px}.dbstatus{font-size:11px;font-weight:700;display:flex;align-items:center;gap:8px}.dot{height:7px;width:7px;background:#66736b;border-radius:50%}.dot.good{background:var(--green);box-shadow:0 0 8px #39e58b66}.dbcard p{font-size:10px;color:var(--muted);line-height:1.5;margin:8px 0 0}.owner{border-top:1px solid var(--line);padding:14px 5px 0;display:flex;gap:10px;align-items:center}.avatar{width:33px;height:33px;border-radius:50%;display:grid;place-items:center;background:#15241b;color:var(--green);font-size:11px;font-weight:700}.owner strong{display:block;font-size:12px}.owner small{color:var(--muted);font-size:10px}main{margin-left:235px;padding:28px 34px 45px;max-width:1600px}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:34px}.crumb{font-size:12px;color:var(--muted}.crumb b{color:#dce7df;font-weight:500}.topright{display:flex;gap:9px}.pill{border:1px solid var(--line);border-radius:8px;padding:9px 12px;font-size:11px;color:#9caaa1;display:flex;align-items:center;gap:8px}.intro{display:flex;justify-content:space-between;align-items:flex-end;margin-bottom:24px}.intro h1{font:600 27px 'Space Grotesk';letter-spacing:-.8px;margin:0 0 8px}.intro p{font-size:13px;color:var(--muted);margin:0}.launch{border:0;border-radius:9px;background:#1a2920;color:#68776d;padding:11px 15px;font-size:12px;font-weight:700;cursor:not-allowed}.cards{display:grid;grid-template-columns:1fr 1fr;gap:15px}.card{background:var(--panel);border:1px solid var(--line);border-radius:13px;padding:18px}.cardhead{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}.cardhead h2{font:600 14px 'Space Grotesk';margin:0}.cardhead small{font-size:10px;color:var(--muted)}.empty{min-height:205px;border:1px dashed #26362b;background:#0a100c;border-radius:10px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:22px}.emptyicon{width:42px;height:42px;border-radius:13px;background:#14251a;color:var(--green);display:grid;place-items:center;font-size:18px;margin-bottom:12px}.empty strong{font-size:12px;margin-bottom:7px}.empty p{font-size:11px;color:var(--muted);line-height:1.5;max-width:275px;margin:0}.wide{grid-column:1/-1}.tablehead{display:flex;justify-content:space-between;align-items:center;padding:15px;border-bottom:1px solid var(--line}.tablehead h2{font:600 14px 'Space Grotesk';margin:0}.tablehead small{font-size:10px;color:var(--muted)}.tableempty{padding:35px;text-align:center;color:var(--muted);font-size:11px}.toast{position:fixed;right:20px;bottom:20px;background:#14251a;border:1px solid #2c7047;color:#dbf6e5;border-radius:9px;padding:12px 15px;font-size:12px;opacity:0;transition:.2s}.toast.show{opacity:1}
+@media(max-width:950px){main{padding:22px}.cards{grid-template-columns:1fr}.wide{grid-column:auto}}
+@media(max-width:700px){.sidebar{width:68px;padding:18px 8px}.brand{justify-content:center;padding:0 0 25px}.brandname,.navlabel,.navtext,.dbcard,.ownerinfo,.navlabel{display:none}.nav button{justify-content:center;padding:12px 7px}.bottom{display:flex;align-items:center;flex-direction:column}.owner{justify-content:center;padding-top:12px}main{margin-left:68px;width:calc(100% - 68px);padding:18px 13px}.intro h1{font-size:21px}.intro p{font-size:11px;max-width:220px}.intro .launch{font-size:10px;padding:9px 10px}.top{margin-bottom:24px}.topright .pill:nth-child(2){display:none}}
+</style></head><body><div class="layout">
+<aside class="sidebar"><div class="brand"><div class="logo">P</div><div class="brandname">Price<span>Nova</span></div></div>
+<div class="navlabel">WORKSPACE</div><nav class="nav">
+<button class="active" data-section="Overview"><span class="glyph">⌂</span><span class="navtext">Overview</span></button>
+<button data-section="Product Hunt"><span class="glyph">⌕</span><span class="navtext">Product Hunt</span></button>
+<button data-section="Watchlist"><span class="glyph">◈</span><span class="navtext">Watchlist</span></button>
+<button data-section="Price Alerts"><span class="glyph">♧</span><span class="navtext">Price Alerts</span></button>
+<button data-section="Analytics"><span class="glyph">▥</span><span class="navtext">Analytics</span></button></nav>
+<div class="navlabel">PREFERENCES</div><nav class="nav"><button data-section="Settings"><span class="glyph">⚙</span><span class="navtext">Settings</span></button><button data-section="Help"><span class="glyph">?</span><span class="navtext">Help Center</span></button></nav>
+<div class="bottom"><div class="dbcard"><div class="dbstatus"><span class="dot" id="dbDot"></span><span id="dbLabel">Turso not configured</span></div><p id="dbInfo">Set Turso credentials in your environment to enable storage.</p></div><div class="owner"><div class="avatar">PN</div><div class="ownerinfo"><strong>PriceNova</strong><small>Product workspace</small></div></div></div></aside>
+<main><header class="top"><div class="crumb">Workspace / <b id="breadcrumb">Overview</b></div><div class="topright"><div class="pill"><span class="dot"></span> Engine not installed</div><div class="pill">Version 1.0</div></div></header>
+<section class="intro"><div><h1 id="pageTitle">Overview <span style="color:var(--green)">✦</span></h1><p id="subtitle">Your product intelligence workspace. No records yet.</p></div><button class="launch" disabled>⌕ &nbsp; Hunting engine pending</button></section>
+<section class="cards">
+<div class="card"><div class="cardhead"><h2>Price activity</h2><small>Live data only</small></div><div class="empty"><div class="emptyicon">⌁</div><strong>No price history</strong><p>Real price movement will appear after the product tracking engine is built and starts collecting data.</p></div></div>
+<div class="card"><div class="cardhead"><h2>System status</h2><small>Readiness</small></div><div class="empty"><div class="emptyicon">◈</div><strong id="sysTitle">Awaiting setup</strong><p id="sysMessage">Turso connection is being prepared. The hunting engine is not active.</p></div></div>
+<div class="card wide"><div class="tablehead"><div><h2>Products</h2><small>Stored products only — no demo entries</small></div><div class="pill" id="count">0 records</div></div><div class="tableempty" id="productEmpty">No products stored yet. This section will show real products after the discovery engine is connected.</div></div>
+<div class="card"><div class="cardhead"><h2>Watchlist</h2><small>Tracked items</small></div><div class="empty"><div class="emptyicon">◇</div><strong>Nothing saved</strong><p>Your watchlist will appear here when real product tracking is implemented.</p></div></div>
+<div class="card"><div class="cardhead"><h2>Price alerts</h2><small>Notification rules</small></div><div class="empty"><div class="emptyicon">♧</div><strong>No alert rules</strong><p>Price alerts will be available after products and monitoring are implemented.</p></div></div>
+</section></main></div><div class="toast" id="toast"></div>
 <script>
-const toastEl=document.getElementById('toast');let timer;function toast(msg){toastEl.textContent=msg;toastEl.classList.add('show');clearTimeout(timer);timer=setTimeout(()=>toastEl.classList.remove('show'),2600)}
-document.querySelectorAll('.nav button').forEach(btn=>btn.addEventListener('click',()=>{document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active'));btn.classList.add('active');const page=btn.dataset.page;document.getElementById('crumb').textContent=page;document.getElementById('heading').innerHTML=page==='Overview'?'Good morning, Qamar <span style="color:var(--green)">✦</span>':page+' <span style="color:var(--green)">✦</span>';toast(page+' view selected — preview mode')}));
-document.getElementById('scanBtn').addEventListener('click',()=>toast('Hunt setup is coming soon ✦'));
-document.getElementById('notif').addEventListener('click',()=>toast('You are all caught up.'));
-document.getElementById('help').addEventListener('click',()=>toast('PriceNova help center — coming soon.'));
-document.getElementById('filterBtn').addEventListener('click',()=>toast('Filter options will be added in the next build.'));
-document.getElementById('search').addEventListener('input',e=>{const q=e.target.value.toLowerCase();let count=0;document.querySelectorAll('#rows tr').forEach(row=>{const match=row.dataset.name.includes(q);row.style.display=match?'':'none';if(match)count++});document.getElementById('empty').style.display=count?'none':'block'});
-document.querySelectorAll('.rowbtn').forEach(btn=>btn.addEventListener('click',()=>toast('Product detail view is planned for the next build.')));
-</script>
-</body>
-</html>`;
+const toast=document.getElementById('toast');let t;
+function notify(s){toast.textContent=s;toast.classList.add('show');clearTimeout(t);t=setTimeout(()=>toast.classList.remove('show'),2300)}
+document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');let p=b.dataset.section;document.getElementById('breadcrumb').textContent=p;document.getElementById('pageTitle').innerHTML=p+' <span style="color:var(--green)">✦</span>';document.getElementById('subtitle').textContent=p==='Overview'?'Your product intelligence workspace. No records yet.':p+' module is reserved until it is implemented.';notify(p+' is not implemented yet')}));
+async function status(){try{let r=await fetch('/api/status');let d=await r.json();let ok=d.database.connected;document.getElementById('dbDot').classList.toggle('good',ok);document.getElementById('dbLabel').textContent=ok?'Turso connected':d.database.configured?'Turso connection error':'Turso not configured';document.getElementById('dbInfo').textContent=ok?'Database tables are initialized and ready for real records.':d.database.configured?'Check your Turso credentials and server log.':'Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your environment.';document.getElementById('sysTitle').textContent=ok?'Storage ready':'Awaiting setup';document.getElementById('sysMessage').textContent=ok?'Turso is connected. Waiting for the product engine to write real data.':'Turso is not connected. The hunting engine is not active.'}catch(e){document.getElementById('dbLabel').textContent='Server unavailable'}}
+status();
+</script></body></html>\`;
 
-const server = http.createServer((req, res) => {
-  if (req.method !== 'GET') {
-    res.writeHead(405, { 'Content-Type': 'text/plain; charset=utf-8' });
-    return res.end('Method Not Allowed');
-  }
-
-  if (req.url === '/' || req.url === '/index') {
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    return res.end(mainPage);
-  }
-
-  if (req.url === '/admin' || req.url === '/Admin.html' || req.url === '/admin.html') {
-    res.writeHead(302, { Location: '/Admin.html' });
-    return res.end();
-  }
-
-  res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
-  res.end('Not Found');
+function json(res, status, data) {
+  res.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
+  res.end(JSON.stringify(data));
+}
+const server=http.createServer((req,res)=>{
+  const url=new URL(req.url,'http://localhost');
+  if(req.method==='GET'&&(url.pathname==='/'||url.pathname==='/index')){res.writeHead(200,{'Content-Type':'text/html; charset=utf-8'});return res.end(page);}
+  if(req.method==='GET'&&url.pathname==='/api/status')return json(res,200,{app:'PriceNova',engine:{installed:false},database:{configured:Boolean(DB_URL&&DB_TOKEN),connected:dbConnected}});
+  if(req.method==='GET'&&['/admin','/Admin.html','/admin.html'].includes(url.pathname)){res.writeHead(302,{Location:'/Admin.html'});return res.end();}
+  return json(res,404,{error:'Not found'});
 });
-
-server.listen(PORT, '0.0.0.0', () => {
-  console.log(`PriceNova server running on http://localhost:${PORT}`);
-});
+prepareDatabase();
+server.listen(PORT,'0.0.0.0',()=>console.log('PriceNova server listening on port '+PORT));
