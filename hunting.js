@@ -118,9 +118,9 @@ function createHuntingEngine({db,config}) {
     if (m==='manual' && !query) throw new Error('Enter a keyword for Manual Hunt.');
     const seeds=config.autoKeywords || ['smartphone','wireless earbuds','power bank','smart watch','laptop','bluetooth speaker','computer monitor','gaming mouse','keyboard','wifi router','air fryer','electric kettle','security camera','SSD','tablet'];
     active={mode:m,query,targetCount:count,status:'running',startedAt:new Date().toISOString()}; last=active;
-    const rec=await db.execute({sql:'INSERT INTO hunt_runs(mode,query,target_count,status) VALUES(?,?,?,?)',args:[m,query,count,'running']});
-    active.id=Number(rec.lastInsertRowid);
     try {
+      const rec=await db.execute({sql:'INSERT INTO hunt_runs(mode,query,target_count,status) VALUES(?,?,?,?)',args:[m,query,count,'running']});
+      active.id=Number(rec.lastInsertRowid);
       const keywords=m==='manual'?[query]:seeds.slice(0,Math.min(seeds.length,Math.max(3,Math.ceil(count/2))));
       const limit=Math.min(50,Math.max(count*8,15));
       const result=await scrape({country:'pk',keywords,maxItems:limit,includeDetails:true,onlyNew:false},{...config,limit});
