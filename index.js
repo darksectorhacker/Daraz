@@ -13,7 +13,7 @@ if (DB_URL && DB_TOKEN) db = createClient({ url: DB_URL, authToken: DB_TOKEN });
 async function prepareDatabase() {
   if (!db) return;
   try {
-    await db.execute(\`CREATE TABLE IF NOT EXISTS products (
+    await db.execute(`CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       marketplace TEXT NOT NULL,
       external_id TEXT,
@@ -24,22 +24,22 @@ async function prepareDatabase() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE(marketplace, external_id)
-    )\`);
-    await db.execute(\`CREATE TABLE IF NOT EXISTS price_history (
+    )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS price_history (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
       price REAL NOT NULL,
       recorded_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
-    )\`);
-    await db.execute(\`CREATE TABLE IF NOT EXISTS price_alerts (
+    )`);
+    await db.execute(`CREATE TABLE IF NOT EXISTS price_alerts (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       product_id INTEGER NOT NULL,
       target_price REAL NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(product_id) REFERENCES products(id) ON DELETE CASCADE
-    )\`);
+    )`);
     dbConnected = true;
     console.log('Turso connected; core tables initialized.');
   } catch (err) {
@@ -48,7 +48,7 @@ async function prepareDatabase() {
   }
 }
 
-const page = \`<!DOCTYPE html><html lang="en"><head>
+const page = `<!DOCTYPE html><html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#070a09"><title>PriceNova | Product Intelligence</title>
 <style>
@@ -82,7 +82,7 @@ function notify(s){toast.textContent=s;toast.classList.add('show');clearTimeout(
 document.querySelectorAll('.nav button').forEach(b=>b.addEventListener('click',()=>{document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));b.classList.add('active');let p=b.dataset.section;document.getElementById('breadcrumb').textContent=p;document.getElementById('pageTitle').innerHTML=p+' <span style="color:var(--green)">✦</span>';document.getElementById('subtitle').textContent=p==='Overview'?'Your product intelligence workspace. No records yet.':p+' module is reserved until it is implemented.';notify(p+' is not implemented yet')}));
 async function status(){try{let r=await fetch('/api/status');let d=await r.json();let ok=d.database.connected;document.getElementById('dbDot').classList.toggle('good',ok);document.getElementById('dbLabel').textContent=ok?'Turso connected':d.database.configured?'Turso connection error':'Turso not configured';document.getElementById('dbInfo').textContent=ok?'Database tables are initialized and ready for real records.':d.database.configured?'Check your Turso credentials and server log.':'Set TURSO_DATABASE_URL and TURSO_AUTH_TOKEN in your environment.';document.getElementById('sysTitle').textContent=ok?'Storage ready':'Awaiting setup';document.getElementById('sysMessage').textContent=ok?'Turso is connected. Waiting for the product engine to write real data.':'Turso is not connected. The hunting engine is not active.'}catch(e){document.getElementById('dbLabel').textContent='Server unavailable'}}
 status();
-</script></body></html>\`;
+</script></body></html>`;
 
 function json(res, status, data) {
   res.writeHead(status, { 'Content-Type':'application/json; charset=utf-8', 'Cache-Control':'no-store' });
