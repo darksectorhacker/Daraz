@@ -1,4 +1,5 @@
 'use strict';
+process.env.PLAYWRIGHT_BROWSERS_PATH = process.env.PLAYWRIGHT_BROWSERS_PATH || '0';
 const { chromium } = require('playwright');
 const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 const productPattern = /-i(\d+)(?:-s\d+)?\.html?(?:$|[?#])/i;
