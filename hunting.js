@@ -17,7 +17,7 @@ function normalize(x) {
     stock:x.inStock !== false, raw:x
   };
 }
-function isDarazUrl(value) { try { const u=new URL(value); return u.protocol==='https:' && /(^|\\.)daraz\\.(pk|lk|com\\.bd|com\\.np)$/.test(u.hostname); } catch { return false; } }
+function isDarazUrl(value) { try { const u=new URL(value); return u.protocol==='https:' && /(^|\.)daraz\.(pk|lk|com\.bd|com\.np)$/.test(u.hostname); } catch { return false; } }
 function score(p) {
   let v = p.price ? 25 : 0;
   if (p.rating !== null) v += Math.min(20, p.rating * 4);
@@ -130,15 +130,15 @@ function createHuntingEngine({db,config}) {
       const modelGroups=new Map();
       for (const p of products) {
         const key=(p.brand+' '+p.title).toLowerCase()
-          .replace(/\\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\\b/g,' ')
-          .replace(/[^a-z0-9]+/g,' ').replace(/\\s+/g,' ').trim();
+          .replace(/\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\b/g,' ')
+          .replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();
         if(!modelGroups.has(key)) modelGroups.set(key,[]);
         modelGroups.get(key).push(p);
       }
       products.forEach(p=>{
         const peers=modelGroups.get((p.brand+' '+p.title).toLowerCase()
-          .replace(/\\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\\b/g,' ')
-          .replace(/[^a-z0-9]+/g,' ').replace(/\\s+/g,' ').trim()) || [];
+          .replace(/\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\b/g,' ')
+          .replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()) || [];
         const peerPrices=peers.map(x=>x.price).filter(Boolean);
         p.comparableCount=peers.length;
         p.bestObservedPrice=peerPrices.length?Math.min(...peerPrices):p.price;
