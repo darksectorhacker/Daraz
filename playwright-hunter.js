@@ -22,6 +22,38 @@ function parsePrice(value) {
   return Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 
+function inspectPage(html) {
+  const $ = load(html);
+  const anchors = $('a[href*="-i"]');
+  const validLinks = [];
+  anchors.each((_, el) => {
+    try {
+      const href = new URL($(el).attr('href') || '', 'https://www.daraz.pk').href;
+      if (isAllowedProductUrl(href)) validLinks.push(href);
+    } catch {}
+  });
+  const text = $('body').text().replace(/\\s+/g, ' ');
+  const embeddedMarkers = [
+    '__NEXT_DATA__',
+    'window.pageData',
+    'window.__',
+    'productList',
+    'listItems',
+    'rootPage',
+    'sku'
+  ];
+  const foundMarkers = embeddedMarkers.filter(marker => html.toLowerCase().includes(marker.toLowerCase()));
+  return {
+    htmlBytes: Buffer.byteLength(html),
+    anchorCount: $('a').length,
+    darazProductPatternLinks: anchors.length,
+    validDarazProductUrls: new Set(validLinks).size,
+    imageCount: $('img').length,
+    priceLikeTextCount: (text.match(/(?:Rs\\.?|PKR)\\s*[\\d,]+(?:\\.\\d{1,2})?/ig) || []).length,
+    embeddedDataMarkers: foundMarkers
+  };
+}
+
 function extractProducts(html, keyword, limit) {
   const $ = load(html);
   const results = [];
@@ -144,18 +176,25 @@ async function searchProducts(keyword, options = {}) {
   }
 
   const html = await response.text();
+  const diagnostics = inspectPage(html);
+  const responseInfo = {
+    status: response.status,
+    finalUrl: response.url,
+    contentType,
+    ...diagnostics
+  };
   if (!html || html.length < 500) {
-    throw new Error('Daraz returned an empty or incomplete search page.');
+    throw new Error('Daraz returned an empty or incomplete search page. Diagnostics: ' + JSON.stringify(responseInfo));
   }
 
   const pageText = load(html).text().slice(0, 7000);
   if (/captcha|verify you are human|access denied|unusual traffic/i.test(pageText)) {
-    throw new Error('Daraz did not allow this request. No CAPTCHA or access-control bypass is attempted.');
+    throw new Error('Daraz did not allow this request. No CAPTCHA or access-control bypass is attempted. Diagnostics: ' + JSON.stringify(responseInfo));
   }
 
   const products = extractProducts(html, q, limit);
   if (!products.length) {
-    throw new Error('Daraz page loaded, but no product cards with a valid title, PKR price and product URL were found. The page structure may have changed.');
+    throw new Error('No products extracted. Diagnostics: ' + JSON.stringify(responseInfo));
   }
   return products;
 }
@@ -188,4 +227,4 @@ async function searchMany(keywords, options = {}) {
   return { products: [...unique.values()], errors };
 }
 
-module.exports = { searchProducts, searchMany, isAllowedProductUrl, extractProducts };
+module.exports = { searchProducts, searchMany, isAllowedProductUrl, extractProducts, inspectPage };
