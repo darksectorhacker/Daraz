@@ -1,24 +1,30 @@
 {
   "name": "pricenova",
-  "version": "1.0.0",
-  "description": "PriceNova — automated product intelligence and price tracking",
+  "version": "2.0.0",
+  "description": "PriceNova — Daraz product intelligence agent",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "build": "node -e \"console.log('PriceNova HTTP product collector ready')\""
+    "build": "node --check index.js && node --check hunting.js && node --check daraz-agent.mjs"
+  },
+  "engines": {
+    "node": "24.x"
   },
   "keywords": [
+    "daraz",
+    "ai-agent",
     "product-intelligence",
-    "price-tracking",
-    "product-discovery",
-    "automation"
+    "price-tracking"
   ],
   "author": "QAMAR",
   "license": "ISC",
   "dependencies": {
+    "@ai-sdk/google": "^4.0.128",
+    "@ai-sdk/groq": "^4.0.88",
     "@libsql/client": "^0.15.15",
+    "ai": "^7.0.183",
     "dotenv": "^16.4.7",
-    "cheerio": "^1.1.2"
+    "zod": "^4.1.12"
   }
 }
