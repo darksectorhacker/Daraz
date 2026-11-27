@@ -43,15 +43,37 @@ function inspectPage(html) {
     'sku'
   ];
   const foundMarkers = embeddedMarkers.filter(marker => html.toLowerCase().includes(marker.toLowerCase()));
+  // Inspect every inline script: early scripts are often analytics/config,
+  // while product state (if present) may be much later in the HTML.
   const scriptHints = [];
-  $('script').each((_, el) => {
-    if (scriptHints.length >= 5) return;
+  const scriptInventory = [];
+  const productStatePattern = /productUrl|itemUrl|itemId|productId|nid|priceShow|originalPrice|itemList|listItems|sku|__INIT_STATE__|__PRELOADED_STATE__/i;
+  $('script').each((index, el) => {
     const scriptText = $(el).html() || '';
-    const markerIndex = scriptText.search(/sku|product|itemlist|listItems/i);
-    if (markerIndex >= 0) {
-      scriptHints.push(scriptText.slice(Math.max(0, markerIndex - 100), markerIndex + 350).replace(/\s+/g, ' '));
+    const src = $(el).attr('src') || '';
+    const type = $(el).attr('type') || 'text/javascript';
+    scriptInventory.push({
+      index,
+      type,
+      src: src.slice(0, 180),
+      bytes: Buffer.byteLength(scriptText),
+      hasProductStateHints: productStatePattern.test(scriptText)
+    });
+    if (scriptHints.length < 12 && productStatePattern.test(scriptText)) {
+      const match = scriptText.match(productStatePattern);
+      const at = match ? match.index : 0;
+      scriptHints.push({
+        index,
+        type,
+        marker: match ? match[0] : '',
+        snippet: scriptText.slice(Math.max(0, at - 180), at + 650).replace(/\s+/g, ' ').slice(0, 850)
+      });
     }
   });
+  const rawProductUrls = [...new Set(
+    (html.match(/(?:https?:)?\/\/(?:www\.)?daraz\.pk\/products\/[^"'\s<>]+?-i\d+(?:-s\d+)?\.html(?:\?[^"'\s<>]*)?/ig) || [])
+      .map(value => value.replace(/^\/\//, 'https://'))
+  )].slice(0, 20);
   return {
     htmlBytes: Buffer.byteLength(html),
     pageTitle: $('title').text().trim().slice(0, 160),
@@ -63,6 +85,9 @@ function inspectPage(html) {
     priceLikeTextCount: (bodyText.match(/(?:Rs\.?|PKR)\s*[\d,]+(?:\.\d{1,2})?/ig) || []).length,
     bodyTextPreview: bodyText.slice(0, 280),
     embeddedDataMarkers: foundMarkers,
+    rawProductUrlMatches: rawProductUrls,
+    scriptInventory,
+    productStateScriptCount: scriptInventory.filter(x => x.hasProductStateHints).length,
     scriptHints
   };
 }
