@@ -17,6 +17,7 @@ function normalize(x) {
     stock:x.inStock !== false, raw:x
   };
 }
+function isDarazUrl(value) { try { const u=new URL(value); return u.protocol==='https:' && /(^|\\.)daraz\\.(pk|lk|com\\.bd|com\\.np)$/.test(u.hostname); } catch { return false; } }
 function score(p) {
   let v = p.price ? 25 : 0;
   if (p.rating !== null) v += Math.min(20, p.rating * 4);
@@ -124,9 +125,26 @@ function createHuntingEngine({db,config}) {
       const limit=Math.min(50,Math.max(count*8,15));
       const result=await scrape({country:'pk',keywords,maxItems:limit,includeDetails:true,onlyNew:false},{...config,limit});
       const unique=new Map();
-      for (const raw of result.items) { const p=normalize(raw); if(p.id&&p.url&&p.title&&p.price&&p.stock) unique.set(p.marketplace+':'+p.id,p); }
+      for (const raw of result.items) { const p=normalize(raw); if(p.id&&isDarazUrl(p.url)&&p.title&&p.price&&p.stock) unique.set(p.marketplace+':'+p.id,p); }
       const products=[...unique.values()];
-      products.forEach(p=>p.score=score(p));
+      const modelGroups=new Map();
+      for (const p of products) {
+        const key=(p.brand+' '+p.title).toLowerCase()
+          .replace(/\\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\\b/g,' ')
+          .replace(/[^a-z0-9]+/g,' ').replace(/\\s+/g,' ').trim();
+        if(!modelGroups.has(key)) modelGroups.set(key,[]);
+        modelGroups.get(key).push(p);
+      }
+      products.forEach(p=>{
+        const peers=modelGroups.get((p.brand+' '+p.title).toLowerCase()
+          .replace(/\\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\\b/g,' ')
+          .replace(/[^a-z0-9]+/g,' ').replace(/\\s+/g,' ').trim()) || [];
+        const peerPrices=peers.map(x=>x.price).filter(Boolean);
+        p.comparableCount=peers.length;
+        p.bestObservedPrice=peerPrices.length?Math.min(...peerPrices):p.price;
+        p.score=score(p)+(peerPrices.length>1&&p.price===p.bestObservedPrice?10:0);
+        p.score=Math.min(100,p.score);
+      });
       products.sort((a,b)=>b.score-a.score || (a.price||Infinity)-(b.price||Infinity));
       const ai=await aiReview(products,config), chosen=products.slice(0,count), saved=await save(chosen);
       Object.assign(active,{status:'completed',foundCount:products.length,savedCount:saved,aiProvider:ai.provider,aiNotes:ai.notes||[],apifyRunId:result.runId,products:chosen.map(p=>({title:p.title,price:p.price,currency:p.currency,url:p.url,score:p.score,rating:p.rating,sold:p.sold,brand:p.brand,image:p.image}))});
