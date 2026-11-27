@@ -54,6 +54,7 @@ function createHuntingEngine({db,config={}}){
  async function hunt({mode,keyword,targetCount}){
   if(active)throw new Error('A hunt is already running.');
   await ensure();
+  if(active)throw new Error('A hunt is already running.');
   const count=Math.max(1,Math.min(50,Number(targetCount)||5)),m=mode==='manual'?'manual':'auto';
   const query=m==='manual'?s(keyword).slice(0,100):'electronics product discovery';
   if(m==='manual'&&!query)throw new Error('Enter a keyword for Manual Hunt.');
