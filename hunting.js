@@ -29,23 +29,23 @@ function createHuntingEngine({db,config={}}){
   if(ready)return;if(readyPromise)return readyPromise;
   readyPromise=(async()=>{
    await db.execute('CREATE TABLE IF NOT EXISTS hunt_runs (id INTEGER PRIMARY KEY AUTOINCREMENT,mode TEXT NOT NULL,query TEXT,target_count INTEGER NOT NULL,status TEXT NOT NULL,found_count INTEGER DEFAULT 0,saved_count INTEGER DEFAULT 0,ai_provider TEXT,error TEXT,started_at TEXT DEFAULT CURRENT_TIMESTAMP,finished_at TEXT)');
-   for(const col of ['brand TEXT','rating REAL','review_count INTEGER','sold_count INTEGER','seller_name TEXT','image_url TEXT','deal_score REAL','source_data TEXT']){
+   for(const col of ['brand TEXT','rating REAL','review_count INTEGER','sold_count INTEGER','seller_name TEXT','image_url TEXT','deal_score REAL','comparable_count INTEGER','best_observed_price REAL','source_data TEXT']){
     try{await db.execute('ALTER TABLE products ADD COLUMN '+col);}catch(e){if(!/duplicate column/i.test(e.message))throw e;}
    }ready=true;
   })();
   try{await readyPromise;}catch(e){readyPromise=null;throw e;}
  }
- async function save(rows){
+ function comparisonKey(title){return s(title).toLowerCase().replace(/\\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\\b/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\\s+/g,' ').trim();}\n async function save(rows){
   let saved=0;
   for(const p of rows){
    if(!p.id||!isAllowedProductUrl(p.url)||!p.title||!p.price)continue;
    const old=await db.execute({sql:'SELECT id,current_price FROM products WHERE marketplace=? AND external_id=? LIMIT 1',args:[p.marketplace,p.id]});
    if(old.rows.length){
     const id=Number(old.rows[0].id),oldPrice=Number(old.rows[0].current_price);
-    await db.execute({sql:'UPDATE products SET url=?,title=?,currency=?,current_price=?,updated_at=CURRENT_TIMESTAMP,brand=?,rating=?,review_count=?,sold_count=?,seller_name=?,image_url=?,deal_score=?,source_data=? WHERE id=?',args:[p.url,p.title,p.currency,p.price,p.brand||null,p.rating,p.reviews,p.sold,p.seller||null,p.image||null,p.score,JSON.stringify(p.raw),id]});
+    await db.execute({sql:'UPDATE products SET url=?,title=?,currency=?,current_price=?,updated_at=CURRENT_TIMESTAMP,brand=?,rating=?,review_count=?,sold_count=?,seller_name=?,image_url=?,deal_score=?,comparable_count=?,best_observed_price=?,source_data=? WHERE id=?',args:[p.url,p.title,p.currency,p.price,p.brand||null,p.rating,p.reviews,p.sold,p.seller||null,p.image||null,p.score,p.comparableCount,p.bestObservedPrice,JSON.stringify(p.raw),id]});
     if(oldPrice!==p.price)await db.execute({sql:'INSERT INTO price_history(product_id,price) VALUES(?,?)',args:[id,p.price]});
    }else{
-    const ins=await db.execute({sql:'INSERT INTO products(marketplace,external_id,url,title,currency,current_price,brand,rating,review_count,sold_count,seller_name,image_url,deal_score,source_data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[p.marketplace,p.id,p.url,p.title,p.currency,p.price,p.brand||null,p.rating,p.reviews,p.sold,p.seller||null,p.image||null,p.score,JSON.stringify(p.raw)]});
+    const ins=await db.execute({sql:'INSERT INTO products(marketplace,external_id,url,title,currency,current_price,brand,rating,review_count,sold_count,seller_name,image_url,deal_score,comparable_count,best_observed_price,source_data) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)',args:[p.marketplace,p.id,p.url,p.title,p.currency,p.price,p.brand||null,p.rating,p.reviews,p.sold,p.seller||null,p.image||null,p.score,p.comparableCount,p.bestObservedPrice,JSON.stringify(p.raw)]});
     // First observation is the baseline; no earlier discount is fabricated.
     await db.execute({sql:'INSERT INTO price_history(product_id,price) VALUES(?,?)',args:[Number(ins.lastInsertRowid),p.price]});
    }saved++;
@@ -68,7 +68,16 @@ function createHuntingEngine({db,config={}}){
    runId=Number(run.lastInsertRowid);active.id=runId;
    const collected=await searchMany(keywords,{maxProducts}),map=new Map();
    for(const raw of collected.products){const p=normalize(raw);if(p.id&&isAllowedProductUrl(p.url)&&p.title&&p.price)map.set(p.marketplace+':'+p.id,p);}
-   const products=[...map.values()];products.forEach(p=>p.score=score(p));products.sort((a,b)=>b.score-a.score||a.price-b.price);
+   const products=[...map.values()];
+   const groups=new Map();
+   for(const p of products){const key=comparisonKey(p.title);if(key){if(!groups.has(key))groups.set(key,[]);groups.get(key).push(p);}}
+   for(const p of products){
+    const peers=groups.get(comparisonKey(p.title))||[];
+    p.comparableCount=peers.length;
+    p.bestObservedPrice=peers.length>1?Math.min(...peers.map(x=>x.price)):null;
+    p.score=score(p);
+   }
+   products.sort((a,b)=>b.score-a.score||a.price-b.price);
    const chosen=products.slice(0,count),ai=await aiReview(chosen,config),saved=await save(chosen);
    Object.assign(active,{status:'completed',foundCount:products.length,savedCount:saved,aiProvider:ai.provider,aiNotes:ai.notes||[],collectionWarnings:collected.errors,products:chosen.map(p=>({title:p.title,price:p.price,currency:p.currency,url:p.url,score:p.score,rating:p.rating,sold:p.sold,brand:p.brand,image:p.image}))});
    await db.execute({sql:"UPDATE hunt_runs SET status='completed',found_count=?,saved_count=?,ai_provider=?,finished_at=CURRENT_TIMESTAMP WHERE id=?",args:[products.length,saved,ai.provider,runId]});
@@ -82,7 +91,7 @@ function createHuntingEngine({db,config={}}){
  async function data(){
   await ensure();
   const [p,r]=await Promise.all([
-   db.execute('SELECT id,marketplace,external_id,url,title,currency,current_price,brand,rating,review_count,sold_count,seller_name,image_url,deal_score,updated_at FROM products ORDER BY deal_score DESC,updated_at DESC LIMIT 50'),
+   db.execute('SELECT id,marketplace,external_id,url,title,currency,current_price,brand,rating,review_count,sold_count,seller_name,image_url,deal_score,comparable_count,best_observed_price,updated_at FROM products ORDER BY deal_score DESC,updated_at DESC LIMIT 50'),
    db.execute('SELECT * FROM hunt_runs ORDER BY id DESC LIMIT 15')
   ]);return{products:p.rows,runs:r.rows};
  }
