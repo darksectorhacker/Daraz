@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node index.js",
     "dev": "node index.js",
-    "build": "export PLAYWRIGHT_BROWSERS_PATH=0 && playwright install chromium && node -e \"const fs=require('fs');const {chromium}=require('playwright');const p=chromium.executablePath();if(!fs.existsSync(p)){console.error('Chromium missing at '+p);process.exit(1)}console.log('Chromium installed and verified at '+p)\""
+    "build": "node -e \"console.log('PriceNova HTTP product collector ready')\""
   },
   "keywords": [
     "product-intelligence",
@@ -19,6 +19,6 @@
   "dependencies": {
     "@libsql/client": "^0.15.15",
     "dotenv": "^16.4.7",
-    "playwright": "^1.56.1"
+    "cheerio": "^1.1.2"
   }
 }
