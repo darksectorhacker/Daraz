@@ -32,7 +32,7 @@ function inspectPage(html) {
       if (isAllowedProductUrl(href)) validLinks.push(href);
     } catch {}
   });
-  const text = $('body').text().replace(/\\s+/g, ' ');
+  const bodyText = $('body').text().replace(/\s+/g, ' ').trim();
   const embeddedMarkers = [
     '__NEXT_DATA__',
     'window.pageData',
@@ -43,14 +43,27 @@ function inspectPage(html) {
     'sku'
   ];
   const foundMarkers = embeddedMarkers.filter(marker => html.toLowerCase().includes(marker.toLowerCase()));
+  const scriptHints = [];
+  $('script').each((_, el) => {
+    if (scriptHints.length >= 5) return;
+    const scriptText = $(el).html() || '';
+    const markerIndex = scriptText.search(/sku|product|itemlist|listItems/i);
+    if (markerIndex >= 0) {
+      scriptHints.push(scriptText.slice(Math.max(0, markerIndex - 100), markerIndex + 350).replace(/\s+/g, ' '));
+    }
+  });
   return {
     htmlBytes: Buffer.byteLength(html),
+    pageTitle: $('title').text().trim().slice(0, 160),
     anchorCount: $('a').length,
     darazProductPatternLinks: anchors.length,
     validDarazProductUrls: new Set(validLinks).size,
     imageCount: $('img').length,
-    priceLikeTextCount: (text.match(/(?:Rs\\.?|PKR)\\s*[\\d,]+(?:\\.\\d{1,2})?/ig) || []).length,
-    embeddedDataMarkers: foundMarkers
+    scriptCount: $('script').length,
+    priceLikeTextCount: (bodyText.match(/(?:Rs\.?|PKR)\s*[\d,]+(?:\.\d{1,2})?/ig) || []).length,
+    bodyTextPreview: bodyText.slice(0, 280),
+    embeddedDataMarkers: foundMarkers,
+    scriptHints
   };
 }
 
