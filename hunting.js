@@ -35,7 +35,8 @@ function createHuntingEngine({db,config={}}){
   })();
   try{await readyPromise;}catch(e){readyPromise=null;throw e;}
  }
- function comparisonKey(title){return s(title).toLowerCase().replace(/\\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\\b/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\\s+/g,' ').trim();}\n async function save(rows){
+ function comparisonKey(title){return s(title).toLowerCase().replace(/\b(black|white|blue|red|green|pink|purple|silver|gold|grey|gray|beige|brown|navy)\b/g,' ').replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim();}
+ async function save(rows){
   let saved=0;
   for(const p of rows){
    if(!p.id||!isAllowedProductUrl(p.url)||!p.title||!p.price)continue;
